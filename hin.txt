@@ -1,0 +1,259 @@
+HADOOP INSTALLATION AND CONFIGURATION
+
+1. CHECK EXISTING INSTALLATION
+
+java -version
+command -v hadoop
+hadoop version
+jps
+
+2. INSTALL DEPENDENCIES
+
+sudo apt update
+sudo apt install -y wget curl tar python3 openssh-client openssh-server gnupg
+
+Install Java 8 if it is not already installed:
+
+sudo apt install -y openjdk-8-jdk
+
+If Ubuntu cannot locate openjdk-8-jdk, use Temurin 8:
+
+sudo mkdir -p /usr/share/keyrings
+curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor | sudo tee /usr/share/keyrings/adoptium.gpg >/dev/null
+. /etc/os-release
+echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $VERSION_CODENAME main" | sudo tee /etc/apt/sources.list.d/adoptium.list
+sudo apt update
+sudo apt install -y temurin-8-jdk
+
+3. SELECT JAVA 8
+
+ls /usr/lib/jvm
+
+Use the path matching the Java 8 installation on this computer.
+
+For OpenJDK 8:
+
+export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+
+For Temurin 8:
+
+export JAVA_HOME=/usr/lib/jvm/temurin-8-jdk-amd64
+
+Check Java:
+
+"$JAVA_HOME/bin/java" -version
+"$JAVA_HOME/bin/javac" -version
+export PATH="$JAVA_HOME/bin:$PATH"
+
+4. CONFIGURE PASSWORDLESS LOCAL SSH
+
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+test -f ~/.ssh/id_ed25519.pub || ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519
+touch ~/.ssh/authorized_keys
+grep -qxF "$(cat ~/.ssh/id_ed25519.pub)" ~/.ssh/authorized_keys || cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+sudo systemctl start ssh
+ssh -o StrictHostKeyChecking=accept-new localhost 'echo SSH_OK'
+
+If systemctl is unavailable:
+
+sudo service ssh start
+
+5. DOWNLOAD AND EXTRACT HADOOP
+
+cd ~
+wget -c https://repo.huaweicloud.com/apache/hadoop/common/hadoop-3.2.3/hadoop-3.2.3.tar.gz
+
+If the Huawei download fails:
+
+rm -f hadoop-3.2.3.tar.gz
+wget -c https://archive.apache.org/dist/hadoop/common/hadoop-3.2.3/hadoop-3.2.3.tar.gz
+
+Verify the downloaded archive:
+
+tar -tzf hadoop-3.2.3.tar.gz >/dev/null && echo ARCHIVE_OK
+
+Extract only if Hadoop is not already installed in this directory:
+
+tar -xzf hadoop-3.2.3.tar.gz -C ~
+
+Set Hadoop location:
+
+export HADOOP_HOME="$HOME/hadoop-3.2.3"
+
+6. SET HADOOP ENVIRONMENT VARIABLES
+
+export HADOOP_CONF_DIR="$HADOOP_HOME/etc/hadoop"
+export HADOOP_MAPRED_HOME="$HADOOP_HOME"
+export HADOOP_COMMON_HOME="$HADOOP_HOME"
+export HADOOP_HDFS_HOME="$HADOOP_HOME"
+export HADOOP_YARN_HOME="$HADOOP_HOME"
+export HADOOP_COMMON_LIB_NATIVE_DIR="$HADOOP_HOME/lib/native"
+export HADOOP_OPTS="-Djava.library.path=$HADOOP_HOME/lib/native"
+export HADOOP_VERSION="$("$HADOOP_HOME/bin/hadoop" version | awk 'NR==1 {print $2}')"
+export HADOOP_STREAMING="$HADOOP_HOME/share/hadoop/tools/lib/hadoop-streaming-$HADOOP_VERSION.jar"
+export HADOOP_EXAMPLES="$HADOOP_HOME/share/hadoop/mapreduce/hadoop-mapreduce-examples-$HADOOP_VERSION.jar"
+export PDSH_RCMD_TYPE=ssh
+export PATH="$JAVA_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$PATH"
+
+Save the environment for future terminal sessions:
+
+mkdir -p ~/bda_practical
+cat > ~/bda_practical/lab_env.sh <<EOF
+export JAVA_HOME="$JAVA_HOME"
+export HADOOP_HOME="$HADOOP_HOME"
+export HADOOP_CONF_DIR="$HADOOP_CONF_DIR"
+export HADOOP_MAPRED_HOME="$HADOOP_MAPRED_HOME"
+export HADOOP_COMMON_HOME="$HADOOP_COMMON_HOME"
+export HADOOP_HDFS_HOME="$HADOOP_HDFS_HOME"
+export HADOOP_YARN_HOME="$HADOOP_YARN_HOME"
+export HADOOP_COMMON_LIB_NATIVE_DIR="$HADOOP_COMMON_LIB_NATIVE_DIR"
+export HADOOP_OPTS="$HADOOP_OPTS"
+export HADOOP_STREAMING="$HADOOP_STREAMING"
+export HADOOP_EXAMPLES="$HADOOP_EXAMPLES"
+export PDSH_RCMD_TYPE=ssh
+export PATH="$JAVA_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin:\$PATH"
+export BDA_LOCAL="$HOME/bda_practical"
+export BDA_HDFS_BASE="/user/$(id -un)/bda_practical"
+EOF
+
+source ~/bda_practical/lab_env.sh
+hadoop version
+ls "$HADOOP_STREAMING" "$HADOOP_EXAMPLES"
+
+7. CONFIGURE HADOOP XML FILES - NEW LOCAL INSTALLATION ONLY
+
+Do not overwrite configuration on an existing working cluster. Back up existing XML files first:
+
+cp -n "$HADOOP_CONF_DIR/core-site.xml" "$HADOOP_CONF_DIR/core-site.xml.bak" 2>/dev/null || true
+cp -n "$HADOOP_CONF_DIR/hdfs-site.xml" "$HADOOP_CONF_DIR/hdfs-site.xml.bak" 2>/dev/null || true
+cp -n "$HADOOP_CONF_DIR/mapred-site.xml" "$HADOOP_CONF_DIR/mapred-site.xml.bak" 2>/dev/null || true
+cp -n "$HADOOP_CONF_DIR/yarn-site.xml" "$HADOOP_CONF_DIR/yarn-site.xml.bak" 2>/dev/null || true
+
+grep -qF "export JAVA_HOME=$JAVA_HOME" "$HADOOP_CONF_DIR/hadoop-env.sh" || echo "export JAVA_HOME=$JAVA_HOME" >> "$HADOOP_CONF_DIR/hadoop-env.sh"
+
+Create core-site.xml:
+
+cat > "$HADOOP_CONF_DIR/core-site.xml" <<'EOF'
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>fs.defaultFS</name>
+    <value>hdfs://localhost:9000</value>
+  </property>
+</configuration>
+EOF
+
+Create HDFS storage directories:
+
+mkdir -p ~/bda_practical/hdfs/name ~/bda_practical/hdfs/data
+
+Create hdfs-site.xml:
+
+cat > "$HADOOP_CONF_DIR/hdfs-site.xml" <<EOF
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>dfs.replication</name>
+    <value>1</value>
+  </property>
+  <property>
+    <name>dfs.namenode.name.dir</name>
+    <value>file://$HOME/bda_practical/hdfs/name</value>
+  </property>
+  <property>
+    <name>dfs.datanode.data.dir</name>
+    <value>file://$HOME/bda_practical/hdfs/data</value>
+  </property>
+</configuration>
+EOF
+
+Create mapred-site.xml:
+
+cat > "$HADOOP_CONF_DIR/mapred-site.xml" <<EOF
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>mapreduce.framework.name</name>
+    <value>yarn</value>
+  </property>
+  <property>
+    <name>yarn.app.mapreduce.am.env</name>
+    <value>HADOOP_MAPRED_HOME=$HADOOP_HOME</value>
+  </property>
+  <property>
+    <name>mapreduce.map.env</name>
+    <value>HADOOP_MAPRED_HOME=$HADOOP_HOME</value>
+  </property>
+  <property>
+    <name>mapreduce.reduce.env</name>
+    <value>HADOOP_MAPRED_HOME=$HADOOP_HOME</value>
+  </property>
+  <property>
+    <name>yarn.app.mapreduce.am.resource.mb</name>
+    <value>512</value>
+  </property>
+  <property>
+    <name>mapreduce.map.memory.mb</name>
+    <value>512</value>
+  </property>
+  <property>
+    <name>mapreduce.reduce.memory.mb</name>
+    <value>512</value>
+  </property>
+</configuration>
+EOF
+
+Create yarn-site.xml:
+
+cat > "$HADOOP_CONF_DIR/yarn-site.xml" <<'EOF'
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>yarn.nodemanager.aux-services</name>
+    <value>mapreduce_shuffle</value>
+  </property>
+  <property>
+    <name>yarn.nodemanager.vmem-check-enabled</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>yarn.nodemanager.resource.memory-mb</name>
+    <value>2048</value>
+  </property>
+  <property>
+    <name>yarn.scheduler.minimum-allocation-mb</name>
+    <value>128</value>
+  </property>
+  <property>
+    <name>yarn.nodemanager.env-whitelist</name>
+    <value>JAVA_HOME,HADOOP_COMMON_HOME,HADOOP_HDFS_HOME,HADOOP_CONF_DIR,CLASSPATH_PREPEND_DISTCACHE,HADOOP_YARN_HOME,HADOOP_HOME,PATH,LANG,TZ,HADOOP_MAPRED_HOME</value>
+  </property>
+</configuration>
+EOF
+
+8. FORMAT NAMENODE - FIRST EMPTY INSTALLATION ONLY
+
+Never format an existing NameNode. If HDFS already works or the name/data directories contain existing files, skip this command.
+
+hdfs namenode -format
+
+9. START HADOOP DAEMONS
+
+start-dfs.sh
+start-yarn.sh
+jps
+
+Expected processes include NameNode, DataNode, SecondaryNameNode, ResourceManager, NodeManager and Jps.
+
+10. VERIFY HADOOP
+
+hadoop version
+hdfs getconf -confKey fs.defaultFS
+hdfs getconf -confKey dfs.replication
+hadoop fs -ls /
+yarn node -list
+
+HDFS web interface: http://localhost:9870
+YARN web interface: http://localhost:8088

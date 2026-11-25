@@ -1,0 +1,62 @@
+QUICK ERROR FIXES / VERIFICATION
+
+A. AFTER OPENING A NEW TERMINAL
+
+source ~/bda_practical/lab_env.sh
+java -version
+hadoop version
+jps
+
+If Hive command is missing in a new terminal, set and export HIVE_HOME from Experiment 5.
+For HBase and Sqoop, likewise set HBASE_HOME and SQOOP_HOME.
+
+B. HDFS / YARN NOT RUNNING
+
+start-dfs.sh
+start-yarn.sh
+jps
+hadoop fs -ls /
+
+Inspect logs if services still fail:
+
+ls "$HADOOP_HOME/logs"
+
+Do not run hdfs namenode -format to fix an existing HDFS error.
+
+C. JOB FAILS: OUTPUT DIRECTORY EXISTS
+
+Remove only the specific output directory you are about to regenerate:
+
+hadoop fs -rm -r -f "$BDA_HDFS_BASE/exp3/output"
+hadoop fs -rm -r -f "$BDA_HDFS_BASE/exp4/output"
+
+Then rerun the corresponding Hadoop job command.
+
+D. PYTHON MATRIX CHECK
+
+python3 -m py_compile "$BDA_LOCAL/exp3/matrix_mapper.py" "$BDA_LOCAL/exp3/matrix_reducer.py"
+python3 "$BDA_LOCAL/exp3/matrix_mapper.py" \
+  < "$BDA_LOCAL/exp3/matrix_input.txt" | sort | \
+  python3 "$BDA_LOCAL/exp3/matrix_reducer.py"
+
+E. HIVE/HBASE/SQOOP DIAGNOSTICS
+
+ls "$HIVE_HOME/lib"/guava-*.jar
+ls "$HBASE_HOME/logs"
+ls "$SQOOP_HOME/lib" | grep -E 'mysql|commons-lang'
+sudo systemctl status mysql --no-pager
+
+If Hive Derby is locked, close other Hive processes using the same Derby metastore. Do not delete metastore_db.
+If HBase Thrift fails, check HBase logs and port 9090; avoid starting two servers on the same port.
+
+F. STOP SERVICES ONLY AT THE VERY END
+
+If HBase/Thrift were started:
+
+hbase-daemon.sh stop thrift
+stop-hbase.sh
+
+Then stop Hadoop:
+
+stop-yarn.sh
+stop-dfs.sh

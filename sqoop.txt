@@ -1,0 +1,154 @@
+EXPERIMENT 7 - MYSQL IMPORT/EXPORT WITH SQOOP
+
+PREPARATION
+Hadoop/HDFS/YARN running and Java 8 configured.
+
+1. CHECK / INSTALL MYSQL
+
+command -v mysql
+sudo apt install -y mysql-server
+sudo systemctl start mysql
+sudo systemctl enable mysql
+sudo mysql
+
+If MySQL was already installed, skip the install command.
+If systemctl fails, use:
+
+sudo service mysql start
+
+2. CREATE MYSQL DATABASE AND TABLES (MYSQL SHELL)
+
+CREATE DATABASE IF NOT EXISTS company;
+USE company;
+CREATE TABLE IF NOT EXISTS employees (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(50),
+  department VARCHAR(50),
+  salary INT
+);
+
+INSERT INTO employees (id, name, department, salary) VALUES
+(1, 'Archana', 'IT', 50000),
+(2, 'Anirudhh', 'Finance', 49000),
+(3, 'Varsha', 'HR', 45000)
+ON DUPLICATE KEY UPDATE
+  name=VALUES(name),
+  department=VALUES(department),
+  salary=VALUES(salary);
+
+CREATE TABLE IF NOT EXISTS employees_exported (
+  id INT PRIMARY KEY,
+  name VARCHAR(50),
+  department VARCHAR(50),
+  salary INT
+);
+
+CREATE USER IF NOT EXISTS 'sqoopuser'@'localhost'
+  IDENTIFIED BY 'sqoop123';
+CREATE USER IF NOT EXISTS 'sqoopuser'@'127.0.0.1'
+  IDENTIFIED BY 'sqoop123';
+GRANT ALL PRIVILEGES ON company.* TO 'sqoopuser'@'localhost';
+GRANT ALL PRIVILEGES ON company.* TO 'sqoopuser'@'127.0.0.1';
+FLUSH PRIVILEGES;
+SELECT * FROM employees;
+EXIT;
+
+Expected: 3 employee rows: Archana, Anirudhh and Varsha.
+If Sqoop later reports ACCESS DENIED for an old sqoopuser account, recheck/reset that lab user's password using ALTER USER in MySQL.
+
+3. CHECK / DOWNLOAD SQOOP 1.4.7
+
+command -v sqoop
+
+If Sqoop 1.4.7 is already installed, reuse it. Otherwise:
+
+cd ~
+wget -c https://archive.apache.org/dist/sqoop/1.4.7/sqoop-1.4.7.bin__hadoop-2.6.0.tar.gz
+tar -tzf sqoop-1.4.7.bin__hadoop-2.6.0.tar.gz >/dev/null && echo ARCHIVE_OK
+tar -xzf sqoop-1.4.7.bin__hadoop-2.6.0.tar.gz -C ~
+
+export SQOOP_HOME="$HOME/sqoop-1.4.7.bin__hadoop-2.6.0"
+export PATH="$SQOOP_HOME/bin:$PATH"
+
+4. CONFIGURE SQOOP + REQUIRED JARS
+
+Create sqoop-env.sh only if it does not already exist:
+
+test -f "$SQOOP_HOME/conf/sqoop-env.sh" || cp "$SQOOP_HOME/conf/sqoop-env-template.sh" "$SQOOP_HOME/conf/sqoop-env.sh"
+
+Add Hadoop paths to this configuration file:
+
+grep -q '^export HADOOP_COMMON_HOME=' "$SQOOP_HOME/conf/sqoop-env.sh" || echo "export HADOOP_COMMON_HOME=$HADOOP_HOME" >> "$SQOOP_HOME/conf/sqoop-env.sh"
+grep -q '^export HADOOP_MAPRED_HOME=' "$SQOOP_HOME/conf/sqoop-env.sh" || echo "export HADOOP_MAPRED_HOME=$HADOOP_HOME" >> "$SQOOP_HOME/conf/sqoop-env.sh"
+
+Download JDBC and commons-lang dependencies:
+
+cd "$SQOOP_HOME/lib"
+wget -c https://repo.maven.apache.org/maven2/com/mysql/mysql-connector-j/8.0.33/mysql-connector-j-8.0.33.jar
+wget -c https://repo.maven.apache.org/maven2/commons-lang/commons-lang/2.6/commons-lang-2.6.jar
+ls "$SQOOP_HOME/lib" | grep -E 'mysql-connector|commons-lang'
+cd ~
+sqoop version
+
+Expected: Sqoop 1.4.7.
+Warnings for optional HBase/HCatalog/Accumulo/ZooKeeper components may appear. An actual exception or failed import is not normal.
+
+5. TEST SQOOP -> MYSQL CONNECTION
+
+The -P option prompts for the lab password: sqoop123.
+Quote the JDBC URL because it contains & characters.
+
+export SQOOP_JDBC='jdbc:mysql://127.0.0.1:3306/company?useSSL=false&allowPublicKeyRetrieval=true'
+
+sqoop list-tables \
+  --connect "$SQOOP_JDBC" \
+  --username sqoopuser -P
+
+Expected tables: employees, employees_exported.
+
+6. IMPORT MYSQL DATA INTO HDFS
+
+The --delete-target-dir option replaces only this experiment's old import directory.
+
+hadoop fs -mkdir -p "$BDA_HDFS_BASE/exp7"
+sqoop import \
+  --connect "$SQOOP_JDBC" \
+  --username sqoopuser -P \
+  --table employees \
+  --target-dir "$BDA_HDFS_BASE/exp7/employees_data" \
+  --delete-target-dir \
+  -m 1
+
+Expected: Retrieved 3 records.
+
+7. VERIFY HDFS IMPORT
+
+hadoop fs -ls "$BDA_HDFS_BASE/exp7/employees_data"
+hadoop fs -cat "$BDA_HDFS_BASE/exp7/employees_data/part-m-00000"
+
+Expected:
+1,Archana,IT,50000
+2,Anirudhh,Finance,49000
+3,Varsha,HR,45000
+
+8. EXPORT HDFS DATA BACK TO MYSQL
+
+Clean only this lab destination table before rerun, to avoid duplicate-key errors on export. This deletes old exported rows:
+
+sudo mysql -e 'TRUNCATE TABLE company.employees_exported;'
+
+sqoop export \
+  --connect "$SQOOP_JDBC" \
+  --username sqoopuser -P \
+  --table employees_exported \
+  --export-dir "$BDA_HDFS_BASE/exp7/employees_data" \
+  --input-fields-terminated-by ',' \
+  -m 1
+
+Expected: Exported 3 records.
+
+9. VERIFY MYSQL EXPORT
+
+sudo mysql -e 'SELECT * FROM company.employees_exported;'
+
+Expected: same 3 rows as the original employees table.

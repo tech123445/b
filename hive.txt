@@ -1,0 +1,140 @@
+EXPERIMENT 5 - HIVE INSTALLATION AND HIVEQL
+
+PREPARATION
+Hadoop/HDFS running, Java 8 available.
+
+1. CHECK / INSTALL HIVE
+
+command -v hive
+
+If Hive 3.1.2 is already installed, set HIVE_HOME to that location and skip downloading. For a fresh install:
+
+cd ~
+wget -c https://mirrors.huaweicloud.com/repository/apache/hive/hive-3.1.2/apache-hive-3.1.2-bin.tar.gz
+
+If Huawei fails, remove the incomplete archive first:
+
+rm -f apache-hive-3.1.2-bin.tar.gz
+wget -c https://archive.apache.org/dist/hive/hive-3.1.2/apache-hive-3.1.2-bin.tar.gz
+
+tar -tzf apache-hive-3.1.2-bin.tar.gz >/dev/null && echo ARCHIVE_OK
+tar -xzf apache-hive-3.1.2-bin.tar.gz -C ~
+
+export HIVE_HOME="$HOME/apache-hive-3.1.2-bin"
+export PATH="$HIVE_HOME/bin:$PATH"
+
+For an existing Hive elsewhere, replace HIVE_HOME accordingly.
+
+2. RESOLVE COMMON HIVE/HADOOP GUAVA CONFLICT
+
+Hive 3.1.2 + Hadoop 3.2.3 may have a Guava JAR mismatch. Use this fix ONLY if Hive startup/schema tool reports a Guava NoSuchMethodError or classpath error. Back up first:
+
+mkdir -p "$BDA_LOCAL/hive_guava_backup"
+mv "$HIVE_HOME"/lib/guava-*.jar "$BDA_LOCAL/hive_guava_backup/"
+cp "$HADOOP_HOME"/share/hadoop/common/lib/guava-*.jar "$HIVE_HOME/lib/"
+ls "$HIVE_HOME"/lib/guava-*.jar
+
+3. CREATE HDFS WAREHOUSE DIRECTORIES
+
+hadoop fs -mkdir -p /tmp /user/hive/warehouse
+hadoop fs -chmod 1777 /tmp
+hadoop fs -chmod g+w /user/hive/warehouse
+hadoop fs -ls /user/hive
+
+4. CONFIGURE LOCAL DERBY METASTORE
+
+This creates an isolated lab metastore and does not delete an existing metastore.
+
+mkdir -p "$BDA_LOCAL/hive" "$BDA_LOCAL/hive_conf" "$BDA_LOCAL/hive_tmp"
+export HIVE_CONF_DIR="$BDA_LOCAL/hive_conf"
+
+cat > "$HIVE_CONF_DIR/hive-site.xml" <<EOF
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>javax.jdo.option.ConnectionURL</name>
+    <value>jdbc:derby:;databaseName=$BDA_LOCAL/hive/metastore_db;create=true</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionDriverName</name>
+    <value>org.apache.derby.jdbc.EmbeddedDriver</value>
+  </property>
+  <property>
+    <name>hive.metastore.warehouse.dir</name>
+    <value>/user/hive/warehouse</value>
+  </property>
+  <property>
+    <name>hive.exec.scratchdir</name>
+    <value>/tmp/hive</value>
+  </property>
+  <property>
+    <name>hive.execution.engine</name>
+    <value>mr</value>
+  </property>
+  <property>
+    <name>hive.exec.local.scratchdir</name>
+    <value>$BDA_LOCAL/hive_tmp</value>
+  </property>
+</configuration>
+EOF
+
+5. INITIALIZE HIVE SCHEMA (ONCE)
+
+cd "$BDA_LOCAL/hive"
+schematool -dbType derby -info
+
+If schema exists and reports a valid version, skip the next command. For a NEW, empty Derby metastore only:
+
+schematool -dbType derby -initSchema
+
+Do not run initSchema repeatedly and do not delete metastore_db.
+
+6. START HIVE SHELL
+
+cd "$BDA_LOCAL/hive"
+hive
+
+7. CREATE DATABASE AND EMPLOYEE TABLE (HIVE SHELL)
+
+CREATE DATABASE IF NOT EXISTS mydb;
+SHOW DATABASES;
+USE mydb;
+CREATE TABLE IF NOT EXISTS employee (
+  id INT,
+  name STRING,
+  age INT,
+  salary DOUBLE,
+  dept STRING
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+STORED AS TEXTFILE;
+SHOW TABLES;
+DESCRIBE employee;
+
+8. INSERT EMPLOYEE RECORDS (HIVE SHELL)
+
+INSERT INTO TABLE employee VALUES
+(1, 'John', 30, 50000.0, 'IT'),
+(2, 'Mary', 28, 55000.0, 'HR'),
+(3, 'Alex', 35, 70000.0, 'IT'),
+(4, 'Priya', 32, 62000.0, 'Finance');
+
+Run INSERT once. To rerun the sample from scratch, first run:
+
+TRUNCATE TABLE employee;
+
+Then execute the INSERT again. A Hive MapReduce job may take a while.
+
+9. EXECUTE QUERIES (HIVE SHELL)
+
+SELECT * FROM employee;
+SELECT name, salary FROM employee WHERE salary > 55000;
+SELECT * FROM employee ORDER BY salary DESC LIMIT 3;
+SELECT dept, COUNT(*), AVG(salary) FROM employee GROUP BY dept;
+
+Expected 4 rows: John, Mary, Alex, Priya.
+GROUP BY: Finance 1, HR 1, IT 2.
+
+10. EXIT HIVE
+
+exit;

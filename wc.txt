@@ -1,0 +1,42 @@
+EXPERIMENT 4 - WORD COUNT USING MAPREDUCE
+
+PREPARATION
+
+source ~/bda_practical/lab_env.sh
+
+1. CREATE THE INPUT FILE
+
+mkdir -p "$BDA_LOCAL/exp4"
+cat > "$BDA_LOCAL/exp4/word_input.txt" <<'EOF'
+Hadoop is a Big Data framework.Hadoop stores Big Data in HDFS.
+MapReduce processes Big Data efficiently.
+Hadoop MapReduce works with HDFS.
+Big Data is processed using Hadoop.
+EOF
+
+Display the input:
+
+cat "$BDA_LOCAL/exp4/word_input.txt"
+
+2. UPLOAD THE INPUT FILE TO HDFS
+
+hadoop fs -mkdir -p "$BDA_HDFS_BASE/exp4/input"
+hadoop fs -put -f "$BDA_LOCAL/exp4/word_input.txt" "$BDA_HDFS_BASE/exp4/input/"
+hadoop fs -ls "$BDA_HDFS_BASE/exp4/input"
+
+3. RUN THE WORDCOUNT MAPREDUCE PROGRAM
+
+Remove the previous output directory for this experiment if it exists:
+
+hadoop fs -rm -r -f "$BDA_HDFS_BASE/exp4/output"
+
+Run WordCount:
+
+hadoop jar "$HADOOP_EXAMPLES" wordcount "$BDA_HDFS_BASE/exp4/input" "$BDA_HDFS_BASE/exp4/output"
+
+4. DISPLAY THE OUTPUT
+
+hadoop fs -ls "$BDA_HDFS_BASE/exp4/output"
+hadoop fs -cat "$BDA_HDFS_BASE/exp4/output/part-r-00000"
+
+Expected words include Big, Data, is, MapReduce and Hadoop. WordCount is case-sensitive and punctuation is not automatically removed.

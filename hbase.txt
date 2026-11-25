@@ -1,0 +1,142 @@
+EXPERIMENT 6 - HBASE 2.4.18 AND THRIFT
+
+PREPARATION
+Hadoop HDFS running; use Java 8. HBase version is 2.4.18.
+
+1. CHECK / INSTALL HBASE
+
+command -v hbase
+
+Reuse existing HBase only if it is version 2.4.18. Keep older HBase installations untouched. For a fresh install:
+
+cd ~
+wget -c https://repo.huaweicloud.com/apache/hbase/2.4.18/hbase-2.4.18-bin.tar.gz
+
+If first link fails, remove the incomplete archive before retrying:
+
+rm -f hbase-2.4.18-bin.tar.gz
+wget -c https://mirrors.huaweicloud.com/apache/hbase/2.4.18/hbase-2.4.18-bin.tar.gz
+
+If both fail, remove the incomplete archive before retrying:
+
+rm -f hbase-2.4.18-bin.tar.gz
+wget -c https://archive.apache.org/dist/hbase/2.4.18/hbase-2.4.18-bin.tar.gz
+
+tar -tzf hbase-2.4.18-bin.tar.gz >/dev/null && echo ARCHIVE_OK
+tar -xzf hbase-2.4.18-bin.tar.gz -C ~
+
+export HBASE_HOME="$HOME/hbase-2.4.18"
+export PATH="$HBASE_HOME/bin:$PATH"
+
+For an existing HBase 2.4.18 elsewhere, set its real HBASE_HOME.
+
+2. CONFIGURE HBASE - NEW LOCAL INSTALL ONLY
+
+Do not overwrite an existing production/shared HBase configuration. Use the current HDFS address:
+
+export HBASE_FS="$(hdfs getconf -confKey fs.defaultFS)"
+echo "$HBASE_FS"
+
+If it does not begin with hdfs://, start/configure Hadoop first.
+
+Back up old local HBase files before editing:
+
+cp -n "$HBASE_HOME/conf/hbase-site.xml" "$HBASE_HOME/conf/hbase-site.xml.bak" 2>/dev/null || true
+cp -n "$HBASE_HOME/conf/hbase-env.sh" "$HBASE_HOME/conf/hbase-env.sh.bak" 2>/dev/null || true
+
+Add environment settings once to hbase-env.sh:
+
+grep -qF "export JAVA_HOME=$JAVA_HOME" "$HBASE_HOME/conf/hbase-env.sh" || echo "export JAVA_HOME=$JAVA_HOME" >> "$HBASE_HOME/conf/hbase-env.sh"
+grep -qF 'export HBASE_MANAGES_ZK=true' "$HBASE_HOME/conf/hbase-env.sh" || echo 'export HBASE_MANAGES_ZK=true' >> "$HBASE_HOME/conf/hbase-env.sh"
+grep -qF 'export HBASE_DISABLE_HADOOP_CLASSPATH_LOOKUP=true' "$HBASE_HOME/conf/hbase-env.sh" || echo 'export HBASE_DISABLE_HADOOP_CLASSPATH_LOOKUP=true' >> "$HBASE_HOME/conf/hbase-env.sh"
+
+Create hbase-site.xml:
+
+cat > "$HBASE_HOME/conf/hbase-site.xml" <<EOF
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>hbase.rootdir</name>
+    <value>${HBASE_FS%/}/bda_practical_hbase</value>
+  </property>
+  <property>
+    <name>hbase.cluster.distributed</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>hbase.zookeeper.quorum</name>
+    <value>localhost</value>
+  </property>
+  <property>
+    <name>hbase.zookeeper.property.clientPort</name>
+    <value>2181</value>
+  </property>
+  <property>
+    <name>hbase.unsafe.stream.capability.enforce</name>
+    <value>false</value>
+  </property>
+</configuration>
+EOF
+
+3. START HBASE
+
+start-hbase.sh
+jps
+
+Expected: HMaster, HRegionServer and ZooKeeper (HQuorumPeer), plus running Hadoop daemons.
+HBase Master web interface: http://localhost:16010
+
+4. INSTALL THRIFT / START THRIFT SERVER
+
+command -v thrift || sudo apt install -y thrift-compiler
+thrift -version
+hbase-daemon.sh start thrift
+jps
+
+Expected: ThriftServer in jps. Default Thrift port = 9090.
+If port 9090 is already in use, do not launch a second Thrift server.
+
+5. OPEN HBASE SHELL
+
+hbase shell
+
+6. CREATE TABLE (HBASE SHELL)
+
+create 'my_table', 'cf1'
+list
+describe 'my_table'
+
+7. INSERT RECORDS (HBASE SHELL)
+
+put 'my_table', 'row1', 'cf1:name', 'Archana'
+put 'my_table', 'row1', 'cf1:dept', 'IT'
+put 'my_table', 'row2', 'cf1:name', 'Varsha'
+
+8. READ RECORDS (HBASE SHELL)
+
+get 'my_table', 'row1'
+get 'my_table', 'row1', {COLUMN => 'cf1:name'}
+scan 'my_table'
+count 'my_table'
+
+Expected: row1 has Archana and IT, row2 has Varsha; count=2.
+
+9. DELETE / DISABLE / ENABLE / DROP (HBASE SHELL)
+
+delete 'my_table', 'row1', 'cf1:dept'
+deleteall 'my_table', 'row2'
+scan 'my_table'
+disable 'my_table'
+enable 'my_table'
+disable 'my_table'
+drop 'my_table'
+list
+exit
+
+Expected last scan: only row1, name=Archana.
+After drop, my_table is no longer listed.
+
+10. STOP THRIFT/HBASE AT END (OPTIONAL)
+
+hbase-daemon.sh stop thrift
+stop-hbase.sh

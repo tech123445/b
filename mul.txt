@@ -1,0 +1,93 @@
+EXPERIMENT 3 - MATRIX MULTIPLICATION USING MAPREDUCE
+
+PREPARATION
+
+source ~/bda_practical/lab_env.sh
+
+1. CREATE MATRIX INPUT
+
+mkdir -p "$BDA_LOCAL/exp3"
+cat > "$BDA_LOCAL/exp3/matrix_input.txt" <<'EOF'
+A,0,0,1
+A,0,1,2
+A,1,0,3
+A,1,1,4
+B,0,0,5
+B,0,1,6
+B,1,0,7
+B,1,1,8
+EOF
+
+cat "$BDA_LOCAL/exp3/matrix_input.txt"
+
+2. CREATE THE MAPPER
+
+cat > "$BDA_LOCAL/exp3/matrix_mapper.py" <<'EOF'
+#!/usr/bin/env python3
+import sys
+
+for line in sys.stdin:
+    if not line.strip():
+        continue
+    name, row, col, value = line.strip().split(",")
+    if name == "A":
+        for k in range(2):
+            print(f"{row},{k}\tA,{col},{value}")
+    elif name == "B":
+        for i in range(2):
+            print(f"{i},{col}\tB,{row},{value}")
+EOF
+
+3. CREATE THE REDUCER
+
+cat > "$BDA_LOCAL/exp3/matrix_reducer.py" <<'EOF'
+#!/usr/bin/env python3
+import sys
+from itertools import groupby
+
+def rows():
+    for line in sys.stdin:
+        if line.strip():
+            key, data = line.rstrip("\\n").split("\\t", 1)
+            name, index, value = data.split(",")
+            yield key, name, int(index), int(value)
+
+for key, group in groupby(rows(), key=lambda r: r[0]):
+    a, b = {}, {}
+    for _, name, index, value in group:
+        (a if name == "A" else b)[index] = value
+    total = sum(value * b.get(j, 0) for j, value in a.items())
+    print(f"{key}\t{total}")
+EOF
+
+4. TEST THE MAPPER AND REDUCER LOCALLY
+
+python3 "$BDA_LOCAL/exp3/matrix_mapper.py" < "$BDA_LOCAL/exp3/matrix_input.txt" | sort | python3 "$BDA_LOCAL/exp3/matrix_reducer.py"
+
+Expected output:
+
+0,0    19
+0,1    22
+1,0    43
+1,1    50
+
+5. UPLOAD MATRIX INPUT TO HDFS
+
+hadoop fs -mkdir -p "$BDA_HDFS_BASE/exp3/input"
+hadoop fs -put -f "$BDA_LOCAL/exp3/matrix_input.txt" "$BDA_HDFS_BASE/exp3/input/"
+hadoop fs -ls "$BDA_HDFS_BASE/exp3/input"
+
+6. RUN THE HADOOP STREAMING MAPREDUCE JOB
+
+Remove the previous output directory for this experiment if it exists:
+
+hadoop fs -rm -r -f "$BDA_HDFS_BASE/exp3/output"
+
+Run the job:
+
+hadoop jar "$HADOOP_STREAMING" -D mapreduce.job.reduces=1 -files "$BDA_LOCAL/exp3/matrix_mapper.py,$BDA_LOCAL/exp3/matrix_reducer.py" -input "$BDA_HDFS_BASE/exp3/input" -output "$BDA_HDFS_BASE/exp3/output" -mapper 'python3 matrix_mapper.py' -reducer 'python3 matrix_reducer.py'
+
+7. DISPLAY THE MATRIX RESULT
+
+hadoop fs -ls "$BDA_HDFS_BASE/exp3/output"
+hadoop fs -cat "$BDA_HDFS_BASE/exp3/output/part-00000"

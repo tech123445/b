@@ -1,0 +1,47 @@
+HDFS FILE MANAGEMENT
+
+PREPARATION
+
+source ~/bda_practical/lab_env.sh
+
+If Hadoop is stopped, start it:
+
+start-dfs.sh
+start-yarn.sh
+
+1. CREATE A LOCAL FILE
+
+mkdir -p "$BDA_LOCAL/exp2"
+cat > "$BDA_LOCAL/exp2/data.txt" <<'EOF'
+Hadoop is a framework for big data.
+HDFS stores data in blocks.
+EOF
+
+Display the local file:
+
+cat "$BDA_LOCAL/exp2/data.txt"
+
+2. CREATE AN HDFS DIRECTORY
+
+hadoop fs -mkdir -p "$BDA_HDFS_BASE/exp2/input"
+hadoop fs -ls "$BDA_HDFS_BASE/exp2"
+
+3. UPLOAD THE LOCAL FILE TO HDFS
+
+hadoop fs -put -f "$BDA_LOCAL/exp2/data.txt" "$BDA_HDFS_BASE/exp2/input/"
+hadoop fs -ls "$BDA_HDFS_BASE/exp2/input"
+
+4. DISPLAY THE FILE FROM HDFS
+
+hadoop fs -cat "$BDA_HDFS_BASE/exp2/input/data.txt"
+
+5. DOWNLOAD THE FILE FROM HDFS TO LOCAL SYSTEM
+
+hadoop fs -get -f "$BDA_HDFS_BASE/exp2/input/data.txt" "$BDA_LOCAL/exp2/data_copy.txt"
+cat "$BDA_LOCAL/exp2/data_copy.txt"
+
+6. DELETE THE HDFS FILE AND EMPTY DIRECTORY
+
+hadoop fs -rm "$BDA_HDFS_BASE/exp2/input/data.txt"
+hadoop fs -rmdir "$BDA_HDFS_BASE/exp2/input"
+hadoop fs -ls "$BDA_HDFS_BASE/exp2"
